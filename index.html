@@ -1,0 +1,588 @@
+
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta id="viewportMeta" name="viewport" content="width=device-width,initial-scale=1" />
+  <title>消費券紀錄 — 核銷與統計</title>
+  <style>
+    :root{
+      --bg:#f6f8fb; --card:#ffffff; --accent:#5b4df5; --muted:#6b6f76;
+      --success:#e8f8ef; --success-border:#27ae60; --danger:#ff6b6b;
+      --soft-border:#eef1fb;
+      --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans TC', 'Noto Sans', Helvetica, Arial, sans-serif;
+    }
+
+    /* Base */
+    html,body{height:100%;}
+    body{
+      font-family:var(--font);
+      background:var(--bg);margin:0;padding:28px;color:#1f2937;line-height:1.45;
+      -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+    }
+    /* Ensure common form controls and table use the same font */
+    select, input, button, table, th, td, label, .stat, .card, .remaining-badge, .amount-badge { font-family: var(--font); }
+    .container{max-width:1100px;margin:0 auto;}
+    h1{color:var(--accent);margin:0 0 14px;font-size:22px;font-weight:700;}
+
+    /* Cards */
+    .card{background:var(--card);padding:16px;border-radius:12px;border:1px solid var(--soft-border);box-shadow:0 6px 18px rgba(18,24,50,0.04);margin-bottom:18px;}
+    .card > strong{display:block;margin-bottom:10px;font-size:15px;color:var(--muted);}
+
+    /* Form layout */
+    .row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;align-items:flex-start}
+    /* Form-specific grid: issuer and amount share equal space; action (button) sits under amount on second row */
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:14px 14px;align-items:start;margin-bottom:8px}
+    .form-grid .col{min-width:0}
+    .form-grid .input-col{grid-row:1}
+    .form-grid .input-col:nth-of-type(1){grid-column:1}
+    .form-grid .input-col:nth-of-type(2){grid-column:2}
+    .form-grid .action-col{grid-column:2;grid-row:2;display:flex;align-items:center;justify-content:flex-end}
+    label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px;}
+    select,input[type="date"],input[type="number"]{padding:10px;border:1px solid #e6eaf7;border-radius:8px;width:100%;box-sizing:border-box;background:#fff}
+    .col{flex:1 1 220px;min-width:160px}
+    @media (max-width:720px){ .row{flex-direction:column} .col{min-width:unset} .form-grid{grid-template-columns:1fr;grid-template-rows:auto auto auto} .form-grid .action-col{grid-column:1;grid-row:3;justify-content:flex-start} }
+
+    /* Actions & buttons */
+    .actions{display:flex;gap:8px;align-items:center;margin-top:8px}
+    button{background:var(--accent);color:#fff;border:none;padding:8px 14px;border-radius:10px;cursor:pointer;font-weight:600;transition:all .12s ease}
+    button:hover{transform:translateY(-1px);box-shadow:0 6px 14px rgba(91,77,245,0.12)}
+    button:active{transform:translateY(0)}
+    button.secondary{background:#f3f4f6;color:#111;border:1px solid #e6e9f2}
+    .btn-link{background:transparent;color:var(--accent);padding:6px 10px;border-radius:8px;border:1px solid transparent;cursor:pointer}
+    .btn-link:hover{background:rgba(91,77,245,0.06)}
+    .btn-danger{background:var(--danger);color:#fff;border:none;padding:6px 10px;border-radius:8px;cursor:pointer}
+    /* Prominent primary button for actions like '核銷' */
+    .btn-primary{background:var(--accent);color:#fff;border:none;padding:6px 10px;border-radius:8px;cursor:pointer;font-weight:700}
+    .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 14px rgba(91,77,245,0.12)}
+    /* Subdued secondary button for less prominent actions */
+    .btn-secondary{background:#f3f4f6;color:#111;border:1px solid #e6e9f2;padding:6px 10px;border-radius:8px;cursor:pointer}
+    /* Plain (no background) button for weak actions */
+    .btn-plain{background:transparent;color:var(--muted);border:none;padding:6px 10px;border-radius:8px}
+    .btn-plain:hover{color:var(--accent);background:transparent}
+
+    /* Table */
+    table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px;background:transparent}
+    th,td{padding:10px 12px;border-bottom:1px solid #f4f6fb;vertical-align:middle}
+    th{background:#fbfcff;color:var(--muted);font-weight:700;font-size:13px}
+    tbody tr:nth-child(even){background:rgba(245,247,255,0.6)}
+    tbody tr:hover{background:rgba(240,243,255,0.9)}
+    /* keep list table centered as requested */
+    #listTable th, #listTable td { text-align:center; }
+
+    .fully-redeemed{background:var(--success);border-left:4px solid var(--success-border)}
+    .remaining-badge{display:inline-block;padding:6px 10px;border-radius:14px;background:#eef5ff;color:#0b3b8a;font-weight:700;font-size:13px}
+
+    /* Unified cell text for issuer and status columns */
+    .cell-text{font-family:var(--font);font-size:14px;color:#1f2937;display:inline-block;vertical-align:middle}
+    .issuer-badge{border-radius:14px;padding:10px 14px;font-weight:900;font-size:15px;display:inline-block;vertical-align:middle;box-shadow:0 4px 10px rgba(18,24,50,0.06)}
+    .amount-badge{display:inline-block;padding:10px 14px;border-radius:14px;font-weight:900;font-size:16px}
+    /* emphasize table columns for amount and issuer */
+    #listTable th.col-amount, #listTable th.col-issuer{font-size:15px;color:#111}
+    /* Use fixed table layout and evenly distribute columns for the voucher list */
+    #listTable{table-layout:fixed}
+    #listTable th, #listTable td{width:calc(100% / 7)}
+    /* Layout tuning for table columns and badges */
+    #listTable td.amount-cell, #listTable td.issuer-cell, #listTable td.remaining-cell, #listTable td.expiry-cell, #listTable td.ops-cell, #listTable td.redeem-cell {
+      vertical-align:middle; text-align:center; padding-top:14px; padding-bottom:14px;
+    }
+    /* Make amount and issuer badges visually centered and consistent */
+    .amount-badge{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border-radius:16px;font-weight:900;font-size:14px;min-width:44px}
+    .issuer-badge{display:inline-flex;align-items:center;justify-content:center;padding:8px 14px;border-radius:16px;font-weight:900;font-size:14px;min-width:72px}
+    .remaining-badge{padding:6px 10px;border-radius:14px;background:#eef5ff;color:#0b3b8a;font-weight:700;font-size:13px;display:inline-flex;align-items:center;justify-content:center;min-width:40px}
+
+    /* Style buttons consistently */
+    #listTable .btn-primary{padding:8px 12px;border-radius:10px;min-width:68px}
+    #listTable .btn-link{padding:6px 8px}
+
+    /* Small stat tables inside statistics card */
+    .stat-tables .stat-table{background:#ffffff;border:1px solid var(--soft-border);border-radius:8px;overflow:hidden}
+    .stat-tables .stat-table th{background:#fbfcff;padding:8px 10px;font-weight:700;color:var(--muted);font-size:13px}
+    .stat-tables .stat-table td{padding:8px 10px;font-size:13px;text-align:center}
+
+    /* 更顯眼的統計文字：放大字級、加粗、數字使用主色系 */
+    .stat-tables .stat-table thead th{font-size:14px;color:#0f1724}
+    .stat-tables .stat-table tbody td:first-child{font-size:15px;color:#0f1724;font-weight:800}
+    .stat-tables .stat-table tbody td:nth-child(2),
+    .stat-tables .stat-table tbody td:nth-child(3){font-size:15px;font-weight:800;color:var(--accent)}
+    .stat-tables .stat-table tbody td{padding:12px 16px}
+    .stat-tables .stat-table tbody tr:hover{background:rgba(230,236,255,0.6)}
+
+    /* Enhanced stat table styling for clearer layout */
+    .stat-tables{width:100%;align-items:flex-start}
+    .stat-tables .stat-table{width:48%;min-width:220px;background:#fff;border-radius:10px;box-shadow:0 6px 18px rgba(18,24,50,0.04);overflow:hidden;border:1px solid var(--soft-border)}
+    .stat-tables .stat-table thead th{background:transparent;text-align:left;padding:12px 16px;font-weight:700;color:var(--muted)}
+    .stat-tables .stat-table tbody td:first-child{text-align:left;padding:12px 16px;font-weight:700;color:#1f2937}
+    .stat-tables .stat-table tbody td:not(:first-child){text-align:center;padding:12px 16px;color:#1f2937}
+    .stat-tables .stat-table tbody tr{border-bottom:1px solid var(--soft-border)}
+    .stat-tables .stat-table tbody tr:nth-child(even){background:rgba(245,247,255,0.6)}
+    .stat-tables .stat-table tbody tr:last-child{border-bottom:none}
+    @media (max-width:720px){ .stat-tables .stat-table{width:100%} }
+
+    /* Stats */
+    .stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+    .stat{flex:1 1 160px;background:#ffffff;padding:14px;border-radius:10px;border:1px solid var(--soft-border);text-align:center}
+    .stat .small{font-size:12px;color:var(--muted);margin-bottom:6px}
+    .stat .value{font-size:20px;font-weight:800;color:#1f2937}
+
+    /* Amount badges (different colors per denomination) */
+    .amount-badge{display:inline-block;padding:6px 10px;border-radius:12px;font-weight:800;font-size:13px}
+    /* vivid styles similar to 50 MOP */
+    .amount-10{background:#ff6b6b;color:#ffffff;box-shadow:inset 0 -2px 0 rgba(0,0,0,0.08)}
+    .amount-20{background:#ff9f43;color:#ffffff;box-shadow:inset 0 -2px 0 rgba(0,0,0,0.06)}
+    .amount-50{background:#ffd54f;color:#5a3200;box-shadow:inset 0 -2px 0 rgba(0,0,0,0.06)}
+    .amount-100{background:#2f9bff;color:#012a49;box-shadow:inset 0 -2px 0 rgba(0,0,0,0.06)}
+    .amount-200{background:#2ed573;color:#063e20;box-shadow:inset 0 -2px 0 rgba(0,0,0,0.06)}
+
+    /* small screens adjustments */
+    @media (max-width:720px){
+      .stat{flex:1 1 100%}
+      th,td{padding:8px}
+    }
+    /* Additional responsive rules for smaller phones */
+    @media (max-width:480px){
+      body{padding:14px}
+      h1{font-size:18px}
+      .container{max-width:100%;padding:0 8px}
+      .card{padding:12px;border-radius:10px}
+      .row{gap:10px}
+      .col{flex:1 1 100%;min-width:0}
+      select,input[type="date"],input[type="number"]{padding:12px;font-size:15px}
+      .actions{flex-direction:row;align-items:center;gap:8px}
+      button{padding:10px;border-radius:8px;font-size:15px}
+      .stat .value{font-size:18px}
+      .amount-badge{padding:5px 8px;font-size:12px}
+      /* Make table horizontally scrollable on small screens */
+      table{display:block;width:100%;overflow:auto;-webkit-overflow-scrolling:touch}
+      thead,tbody,tr{display:table;width:100%;table-layout:fixed}
+      th,td{white-space:nowrap;padding:8px}
+    }
+
+    /* Ensure button labels remain horizontal and do not wrap */
+    .actions button, .action-col .actions button {
+      white-space:nowrap;
+      writing-mode:horizontal-tb;
+      text-orientation:mixed;
+      line-height:1.1;
+      min-width:56px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>消費券紀錄 — 核銷與統計</h1>
+
+    <script>
+      // 手機自動縮放（優化 16:9 直屏）
+      (function(){
+        function isPortraitTall(){
+          const w = window.innerWidth || document.documentElement.clientWidth;
+          const h = window.innerHeight || document.documentElement.clientHeight;
+          if(!w || !h) return false;
+          if(h <= w) return false; // not portrait
+          const ar = h / w;
+          // Accept common tall phone ratios including 16:9 and 20:9 (~1.78 to ~2.22)
+          return ar >= 1.6 && ar <= 2.4;
+        }
+
+        function adjustScale(){
+          try{
+            const meta = document.getElementById('viewportMeta');
+            if(!meta) return;
+            const screenW = window.innerWidth || document.documentElement.clientWidth;
+            // Prefer measuring the form row (三欄) width so we ensure those columns fit
+            const row = document.querySelector('.card form .row') || document.querySelector('.row') || document.documentElement;
+            const contentW = row ? Math.max(row.scrollWidth || 0, document.documentElement.scrollWidth || 0) : document.documentElement.scrollWidth || 0;
+
+            let scale = 1;
+            if(isPortraitTall()){
+              // On tall 16:9 phones, prefer to fit the form row into viewport with a small padding
+              if(contentW > 0){
+                const desired = (screenW - 12) / contentW; // 12px padding allowance
+                scale = Math.max(0.6, Math.min(1, desired));
+              }
+            } else if(contentW > screenW){
+              // Fallback: general fit-to-width behavior
+              scale = Math.max(0.5, Math.min(1, screenW / contentW));
+            }
+
+            meta.setAttribute('content', `width=device-width, initial-scale=${scale}, maximum-scale=2`);
+          }catch(e){ /* ignore */ }
+        }
+
+        window.addEventListener('load', function(){ setTimeout(adjustScale, 80); });
+        window.addEventListener('orientationchange', function(){ setTimeout(adjustScale, 300); });
+        window.addEventListener('resize', function(){ setTimeout(adjustScale, 150); });
+      })();
+    </script>
+
+    <!-- 新增券表單 -->
+    <div class="card">
+      <form id="voucherForm">
+        <div class="row form-grid">
+          <div class="col input-col">
+            <label><strong>發券機構</strong></label>
+            <select id="issuer">
+              <option value="">-- 請選擇 --</option>
+              <option value="MPay">MPay</option>
+              <option value="國際">國際</option>
+              <option value="UePay">UePay</option>
+              <option value="支付寶">支付寶</option>
+              <option value="中銀">中銀</option>
+              <option value="工商">工商</option>
+            </select>
+          </div>
+          <div class="col input-col">
+            <label><strong>面額 MOP</strong></label>
+            <select id="amount" required>
+              <option value="">-- 請選擇 --</option>
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+            </select>
+          </div>
+          <div class="col action-col">
+            <div class="actions">
+              <button type="submit" id="saveBtn">新增紀錄</button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- 列表 -->
+    <div class="card">
+      <strong>已取得的消費券</strong>
+      <table id="listTable">
+        <thead>
+          <tr>
+            <th>抽中日期</th>
+            <th class="col-amount">面額 MOP</th>
+            <th class="col-issuer">發券機構</th>
+            <th>剩餘可核銷</th>
+            <th>到期日</th>
+            <!-- 核銷狀態欄位已移除 -->
+            <th>操作</th>
+            <th>核銷</th>
+          </tr>
+        </thead>
+        <tbody id="listBody"></tbody>
+      </table>
+    </div>
+
+    <!-- 統計 -->
+    <div class="card">
+      <strong>統計</strong>
+        <!-- 先顯示統計表格（圖2），再顯示指標卡（圖1） -->
+        <div class="stat-tables" style="margin-top:0;margin-bottom:12px;display:flex;gap:12px;flex-wrap:wrap">
+          <table id="statByAmount" class="stat-table" style="border-collapse:collapse">
+            <thead><tr><th>面額</th><th>筆數</th><th>總額</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <table id="statByIssuer" class="stat-table" style="border-collapse:collapse">
+            <thead><tr><th>發券機構</th><th>筆數</th><th>總額</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      <div class="stats">
+        <div class="stat"><div class="small">總筆數</div><div id="statCount">0</div></div>
+        <div class="stat"><div class="small">總中獎金額 MOP</div><div id="statTotal">0</div></div>
+        <div class="stat"><div class="small">已核銷筆數</div><div id="statRedeemedCount">0</div></div>
+        <div class="stat"><div class="small">已核銷金額 MOP</div><div id="statRedeemedTotal">0</div></div>
+        <div class="stat"><div class="small">平均面額 MOP</div><div id="statAvg">0</div></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'voucher_with_stats';
+    let records = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    let editIndex = -1;
+    const $ = id => document.getElementById(id);
+
+    function saveToStorage(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }
+    function isoToDisplay(iso){ if(!iso) return ''; const p=iso.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; }
+    function todayIso(){ return new Date().toISOString().slice(0,10); }
+
+    function computeStats(){
+      const count = records.length;
+      const total = records.reduce((s,r)=>s+(Number(r.amount)||0),0);
+      const redeemedCount = records.filter(r=>Number(r.remaining)<=0).length;
+      const redeemedTotal = records.reduce((s,r)=>s+((Number(r.amount)-Number(r.remaining))||0),0);
+      const avg = count? total/count : 0;
+      $('statCount').textContent = count;
+      $('statTotal').textContent = total.toFixed(0);
+      $('statRedeemedCount').textContent = redeemedCount;
+      $('statRedeemedTotal').textContent = redeemedTotal.toFixed(0);
+      $('statAvg').textContent = avg.toFixed(2);
+
+      // --- 新增：按面額與按發券機構的分布表格 ---
+      // 計算按面額
+      const amountBuckets = {'10':0,'20':0,'50':0,'100':0,'200':0};
+      const amountSums = {'10':0,'20':0,'50':0,'100':0,'200':0};
+      // 計算按發券機構（動態）
+      const issuerBuckets = {};
+      const issuerSums = {};
+      records.forEach(r => {
+        const a = String(r.amount || '');
+        const amt = Number(r.amount) || 0;
+        if(amountBuckets.hasOwnProperty(a)){
+          amountBuckets[a]++;
+          amountSums[a] += amt;
+        }
+        const iss = r.issuer || '未知';
+        issuerBuckets[iss] = (issuerBuckets[iss]||0) + 1;
+        issuerSums[iss] = (issuerSums[iss]||0) + amt;
+      });
+
+      // render amount table
+      const tbAmount = $('statByAmount');
+      if(tbAmount){
+        const tbody = tbAmount.querySelector('tbody');
+        tbody.innerHTML = '';
+        Object.keys(amountBuckets).forEach(k => {
+          const cnt = amountBuckets[k] || 0;
+          const sum = amountSums[k] || 0;
+          const tr = `<tr><td>${k} MOP</td><td>${cnt}</td><td>${sum}</td></tr>`;
+          tbody.insertAdjacentHTML('beforeend', tr);
+        });
+      }
+
+      // render issuer table
+      const tbIss = $('statByIssuer');
+      if(tbIss){
+        const tbody = tbIss.querySelector('tbody');
+        tbody.innerHTML = '';
+        Object.keys(issuerBuckets).sort().forEach(k => {
+          const cnt = issuerBuckets[k] || 0;
+          const sum = issuerSums[k] || 0;
+          const tr = `<tr><td>${k}</td><td>${cnt}</td><td>${sum}</td></tr>`;
+          tbody.insertAdjacentHTML('beforeend', tr);
+        });
+      }
+    }
+
+    // 檢查是否已到期 — 規則：抽中日（local） + 7 天，於當天 00:00 生效
+    function parseIsoDateToLocal(iso){
+      const parts = String(iso || '').split('-').map(n=>Number(n));
+      if(parts.length < 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return null;
+      return new Date(parts[0], parts[1]-1, parts[2], 0, 0, 0);
+    }
+
+    function isExpired(record){
+      if(!record || !record.drawDate) return false;
+      const draw = parseIsoDateToLocal(record.drawDate);
+      if(!draw) return false;
+      // 計算抽中日之「下一個星期五」(local)，若當日為星期五也視為下一個星期五（+7 天）
+      const drawDay = draw.getDay(); // 0=Sun .. 5=Fri ..6=Sat
+      const targetWeekday = 5; // Friday
+      let delta = (targetWeekday - drawDay + 7) % 7;
+      if(delta === 0) delta = 7; // 當天若為星期五，取下一個星期五
+      const expiry = new Date(draw.getTime());
+      expiry.setDate(expiry.getDate() + delta);
+      // expiry 為當地時間的到期日 00:00
+      return new Date() >= expiry;
+    }
+
+    // 取得抽中日對應的到期日（下一個星期五 00:00，若當日為星期五則為下週五）
+    function getExpiryLocal(drawIso){
+      const draw = parseIsoDateToLocal(drawIso);
+      if(!draw) return null;
+      const drawDay = draw.getDay();
+      const targetWeekday = 5; // Friday
+      let delta = (targetWeekday - drawDay + 7) % 7;
+      if(delta === 0) delta = 7;
+      const expiry = new Date(draw.getTime());
+      expiry.setDate(expiry.getDate() + delta);
+      return expiry;
+    }
+
+    function formatLocalDate(d){ if(!d) return ''; const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); return `${dd}/${mm}/${d.getFullYear()}`; }
+
+    function render(){
+      const tbody=$('listBody'); tbody.innerHTML='';
+      // 只顯示尚未全額核銷且尚未到期的紀錄 (remaining > 0 且未過期)
+      const visible = records.filter(r => Number(r.remaining) > 0 && !isExpired(r));
+      if(visible.length === 0){ tbody.innerHTML = '<tr><td colspan="7">目前沒有紀錄</td></tr>'; computeStats(); return; }
+        visible.forEach((r)=>{
+        if(Number(r.remaining) <= 0) return; // skip fully redeemed
+        const realIdx = records.indexOf(r);
+        const tr=document.createElement('tr');
+        // 計算發券機構顏色（使用現有的 getIssuerColors helper）
+        const _ic = getIssuerColors(r.issuer || '');
+        const _issuerStyle = `background:${_ic.bg};color:${_ic.color};border:1px solid ${_ic.border};padding:6px 10px;border-radius:12px;font-weight:800;display:inline-block;`;
+        tr.innerHTML = `
+          <td>${isoToDisplay(r.drawDate)}</td>
+          <td class="amount-cell"><span class="amount-badge amount-${r.amount}">${r.amount}</span></td>
+          <td class="issuer-cell"><span class="issuer-badge" style="${_issuerStyle}">${r.issuer || ''}</span></td>
+          <td class="remaining-cell"><span class="remaining-badge">${r.remaining}</span></td>
+          <td class="expiry-cell">${formatLocalDate(getExpiryLocal(r.drawDate))}</td>
+          <!-- 核銷狀態欄位已移除 -->
+          <td class="ops-cell">
+            <button class="btn-link btn-plain" onclick="removeRecord(${realIdx})">刪除</button>
+          </td>
+          <td class="redeem-cell">
+            <button class="btn-primary" onclick="redeem(${realIdx})">核銷</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      computeStats();
+    }
+
+    function redeem(idx){
+      const r = records[idx]; if(!r) return;
+      const max = Number(r.remaining) || 0;
+      if(max <= 0){ alert('此券已全數核銷。'); return; }
+      let q = prompt(`輸入核銷金額 (剩餘 ${r.remaining})`, max);
+      if(q === null) return;
+      q = Math.max(0, Math.min(Number(q) || 0, max));
+      r.remaining = (Number(r.remaining) - q).toString();
+      // lastRedeemed 已移除，不再記錄最後核銷日期
+      saveToStorage(); render();
+    }
+
+    function editRecord(idx){
+      const r = records[idx]; if(!r) return;
+      $('issuer').value = r.issuer || '';
+      $('amount').value = r.amount || '';
+      editIndex = idx; $('saveBtn').textContent = '更新紀錄';
+    }
+
+    function removeRecord(idx){
+      if(!confirm('確定要刪除此筆紀錄？')) return;
+      records.splice(idx,1); saveToStorage(); render();
+    }
+
+    document.getElementById('voucherForm').addEventListener('submit', function(e){
+      e.preventDefault();
+      const issuer = $('issuer').value;
+      const amount = $('amount').value;
+      const drawDate = todayIso();
+      if(!amount){ alert('請選擇面額'); return; }
+      if(editIndex >= 0){
+        const r = records[editIndex];
+        const prevAmount = Number(r.amount) || 0;
+        const prevRedeemed = prevAmount - (Number(r.remaining) || 0);
+        r.issuer = issuer; r.amount = amount;
+        r.remaining = Math.max(0, Number(amount) - prevRedeemed).toString();
+        editIndex = -1; $('saveBtn').textContent = '新增紀錄';
+      } else {
+        const rec = { issuer, amount, drawDate, remaining: amount };
+        records.push(rec);
+      }
+      saveToStorage(); e.target.reset();
+      const note = $('drawDateNote'); if(note) note.textContent = '';
+      render();
+    });
+
+    // 清空表單功能已移除
+
+    render();
+
+    // 測試區塊已移除
+
+    /* --- Select option color helpers --- */
+    function getAmountColors(v){
+      switch(String(v)){
+        case '10': return {bg:'#ff6b6b', color:'#ffffff', border:'#ff9a9a'};
+        case '20': return {bg:'#ff9f43', color:'#ffffff', border:'#ffb97a'};
+        case '50': return {bg:'#ffd54f', color:'#5a3200', border:'#ffe9a8'};
+        case '100': return {bg:'#2f9bff', color:'#012a49', border:'#8ec6ff'};
+        case '200': return {bg:'#2ed573', color:'#063e20', border:'#a8f1c8'};
+        default: return {bg:'#ffffff', color:'#111', border:'#e6eaf7'};
+      }
+    }
+
+    function getIssuerColors(v){
+      switch(String(v)){
+        case 'MPay': return {bg:'#eef2ff', color:'#3b2dff', border:'#e6e8ff'};
+        case '國際': return {bg:'#fff7f0', color:'#b45a00', border:'#ffe9d1'};
+        case 'UePay': return {bg:'#e8f5ff', color:'#0b66b3', border:'#cfeaff'};
+        case '支付寶': return {bg:'#fff0f6', color:'#b3008a', border:'#ffd7f0'};
+        case '中銀': return {bg:'#eefaf0', color:'#0a7a3a', border:'#dff4e6'};
+        case '工商': return {bg:'#fffaf0', color:'#a85a00', border:'#ffe9d1'};
+        default: return {bg:'#ffffff', color:'#111', border:'#e6eaf7'};
+      }
+    }
+
+    function getDateColors(v){
+      if(!v) return {bg:'#ffffff', color:'#111', border:'#e6eaf7'};
+      const m = (v.split('-')[1]||'')*1;
+      switch(m){
+        case 4: return {bg:'#e8f5ff', color:'#0b66b3', border:'#cfeaff'}; // Apr
+        case 5: return {bg:'#eafaf1', color:'#0a7a3a', border:'#dff4e6'}; // May
+        case 6: return {bg:'#fff8e1', color:'#8a6b00', border:'#fff1c4'}; // Jun
+        default: return {bg:'#ffffff', color:'#111', border:'#e6eaf7'};
+      }
+    }
+
+    function applySelectColor(sel){
+      if(!sel) return;
+      // New behavior: show a multi-color hint (gradient) when NOT selected;
+      // when user selects a value, keep default look (do not apply colors).
+      function buildGradient(cols){
+        if(!cols || !cols.length) return '';
+        const step = 100 / cols.length;
+        return 'linear-gradient(90deg,' + cols.map((c,i)=>`${c} ${i*step}% ${(i+1)*step}%`).join(',') + ')';
+      }
+
+      if(!sel.value){
+        let cols = ['#ffffff'];
+        if(sel.id === 'amount') cols = ['#fff0f0','#fff8f0','#ffd54f','#e8f5ff','#eafaf1'];
+        else if(sel.id === 'issuer') cols = ['#eef2ff','#fff7f0','#e8f5ff','#fff0f6','#eefaf0'];
+        else if(sel.id === 'drawDate') cols = ['#e8f5ff','#eafaf1','#fff8e1'];
+
+        sel.style.backgroundImage = buildGradient(cols);
+        sel.style.backgroundRepeat = 'no-repeat';
+        sel.style.backgroundSize = '100% 100%';
+        sel.style.color = ''; sel.style.borderColor = '';
+      } else {
+        // selected: clear any hint styling and keep default appearance
+        sel.style.backgroundImage = '';
+        sel.style.backgroundColor = '';
+        sel.style.color = '';
+        sel.style.borderColor = '';
+      }
+    }
+
+    ['issuer','amount'].forEach(id=>{
+      const s = $(id);
+      if(!s) return;
+      s.addEventListener('change', ()=> applySelectColor(s));
+      // apply on init
+      applySelectColor(s);
+    });
+
+    // Style each <option> element with a background color where possible.
+    // Note: Some browsers ignore option styling; this is best-effort.
+    function styleOptions(){
+      const amountPal = {
+        '10': {bg:'#ff6b6b', color:'#ffffff'},
+        '20': {bg:'#ff9f43', color:'#ffffff'},
+        '50': {bg:'#ffd54f', color:'#5a3200'},
+        '100':{bg:'#2f9bff', color:'#012a49'},
+        '200':{bg:'#2ed573', color:'#063e20'}
+      };
+      const issuerPal = {
+        'MPay':{bg:'#eef2ff', color:'#3b2dff'}, '國際':{bg:'#fff7f0', color:'#b45a00'},
+        'UePay':{bg:'#e8f5ff', color:'#0b66b3'}, '支付寶':{bg:'#fff0f6', color:'#b3008a'},
+        '中銀':{bg:'#eefaf0', color:'#0a7a3a'}, '工商':{bg:'#fffaf0', color:'#a85a00'}
+      };
+      const datePalette = ['#fef6ff','#fff8e1','#eef8ff','#fff7f0','#eefaf0','#fff6f0'];
+
+      const a = $('amount'); if(a){ for(let i=0;i<a.options.length;i++){ const opt=a.options[i]; const p=amountPal[opt.value]; if(p){ opt.style.backgroundColor=p.bg; opt.style.color=p.color; } } }
+      const iss = $('issuer'); if(iss){ for(let i=0;i<iss.options.length;i++){ const opt=iss.options[i]; const p=issuerPal[opt.value]; if(p){ opt.style.backgroundColor=p.bg; opt.style.color=p.color; } } }
+
+      // drawDate select removed; no date option styling needed
+    }
+
+    styleOptions();
+  </script>
+  <script>
+    // 匯入/匯出功能已移除
+  </script>
+</body>
+</html>
