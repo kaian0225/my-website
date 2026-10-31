@@ -138,7 +138,6 @@
       h1 { font-size: 19px; }
       .card { padding: 14px; }
 
-      /* 隱藏表格，顯示卡片 */
       #listTable { display: none; }
       #cardList { display: flex; }
 
@@ -197,7 +196,6 @@
     <div class="card">
       <strong>已取得的消費券</strong>
       
-      <!-- 桌面表格 -->
       <table id="listTable">
         <thead>
           <tr>
@@ -213,13 +211,12 @@
         <tbody id="listBody"></tbody>
       </table>
 
-      <!-- 手機卡片列表 -->
       <div id="cardList"></div>
     </div>
 
     <!-- 統計 -->
     <div class="card">
-      <strong>統計</strong>
+      <strong>統計（當前有效未核銷）</strong>
       <div class="stat-tables" style="margin-top:0;margin-bottom:12px;">
         <table id="statByAmount" class="stat-table">
           <thead><tr><th>面額</th><th>筆數</th><th>總額</th></tr></thead>
@@ -232,9 +229,7 @@
       </div>
       <div class="stats">
         <div class="stat"><div class="small">總筆數</div><div id="statCount" class="value">0</div></div>
-        <div class="stat"><div class="small">總中獎金額 MOP</div><div id="statTotal" class="value">0</div></div>
-        <div class="stat"><div class="small">已核銷筆數</div><div id="statRedeemedCount" class="value">0</div></div>
-        <div class="stat"><div class="small">已核銷金額 MOP</div><div id="statRedeemedTotal" class="value">0</div></div>
+        <div class="stat"><div class="small">總金額 MOP</div><div id="statTotal" class="value">0</div></div>
         <div class="stat"><div class="small">平均面額 MOP</div><div id="statAvg" class="value">0</div></div>
       </div>
     </div>
@@ -251,22 +246,26 @@
     function todayIso(){ return new Date().toISOString().slice(0,10); }
 
     function computeStats(){
-      const count = records.length;
-      const total = records.reduce((s,r)=>s+(Number(r.amount)||0),0);
-      const redeemedCount = records.filter(r=>Number(r.remaining)<=0).length;
-      const redeemedTotal = records.reduce((s,r)=>s+((Number(r.amount)-Number(r.remaining))||0),0);
-      const avg = count? total/count : 0;
+      // 只統計「未核銷 + 未過期」的消費券
+      const activeRecords = records.filter(r => Number(r.remaining) > 0 && !isExpired(r));
+
+      const count = activeRecords.length;
+      const total = activeRecords.reduce((s,r)=>s+(Number(r.amount)||0),0);
+      const avg = count ? total / count : 0;
+
       $('statCount').textContent = count;
       $('statTotal').textContent = total.toFixed(0);
-      $('statRedeemedCount').textContent = redeemedCount;
-      $('statRedeemedTotal').textContent = redeemedTotal.toFixed(0);
       $('statAvg').textContent = avg.toFixed(2);
 
+      // 按面額統計
       const amountBuckets = {'10':0,'20':0,'50':0,'100':0,'200':0};
       const amountSums = {'10':0,'20':0,'50':0,'100':0,'200':0};
+
+      // 按發券機構統計
       const issuerBuckets = {};
       const issuerSums = {};
-      records.forEach(r => {
+
+      activeRecords.forEach(r => {
         const a = String(r.amount || '');
         const amt = Number(r.amount) || 0;
         if(amountBuckets.hasOwnProperty(a)){
@@ -278,6 +277,7 @@
         issuerSums[iss] = (issuerSums[iss]||0) + amt;
       });
 
+      // 渲染面額統計表
       const tbAmount = $('statByAmount');
       if(tbAmount){
         const tbody = tbAmount.querySelector('tbody');
@@ -289,6 +289,7 @@
         });
       }
 
+      // 渲染發券機構統計表
       const tbIss = $('statByIssuer');
       if(tbIss){
         const tbody = tbIss.querySelector('tbody');
@@ -312,7 +313,7 @@
       const draw = parseIsoDateToLocal(record.drawDate);
       if(!draw) return false;
       const drawDay = draw.getDay();
-      const targetWeekday = 5;
+      const targetWeekday = 5; // Friday
       let delta = (targetWeekday - drawDay + 7) % 7;
       if(delta === 0) delta = 7;
       const expiry = new Date(draw.getTime());
